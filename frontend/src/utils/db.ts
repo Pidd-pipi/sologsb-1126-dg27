@@ -12,16 +12,18 @@ import type { FactorAssessment } from '@/types/factor'
 import type { ScoreProfile } from '@/types/score'
 import { DEFAULT_WEIGHTS } from '@/types/score'
 import type { RiskVeto } from '@/types/veto'
+import type { CampCapacity } from '@/types/capacity'
 
 export const DB_NAME = 'gbcampsite-db'
 /** 当前数据结构版本号 */
-export const DB_VERSION = 3
+export const DB_VERSION = 4
 
 export class GbCampsiteDatabase extends Dexie {
   sites!: Table<Campsite, number>
   factors!: Table<FactorAssessment, number>
   profiles!: Table<ScoreProfile, number>
   vetos!: Table<RiskVeto, number>
+  campCapacities!: Table<CampCapacity, number>
 
   constructor() {
     super(DB_NAME)
@@ -73,6 +75,20 @@ export class GbCampsiteDatabase extends Dexie {
             if (typeof s.flatness !== 'number') s.flatness = 70
             if (typeof s.tentCapacity !== 'number') s.tentCapacity = 1
           })
+      })
+
+    // v4：新增营地容量表（每个营地可接待的帐篷总数上限），并为存量库回填样例容量
+    this.version(4)
+      .stores({
+        sites: '++id, code, name, campName, surface, access, defaultProfileId, updatedAt',
+        factors: '++id, siteId, assessedAt, assessor',
+        profiles: '++id, name, season, active, updatedAt',
+        vetos: '++id, siteId, type, judgedAt',
+        campCapacities: '++id, campName'
+      })
+      .upgrade(async (tx) => {
+        const rows = seedCampCapacities()
+        await tx.table('campCapacities').bulkPut(rows)
       })
   }
 }
@@ -369,14 +385,42 @@ function seedVetos(): RiskVeto[] {
   ]
 }
 
+/** 营地容量表：各营地可接待的帐篷总数上限，合并勘察包时据此校验是否超限。 */
+function seedCampCapacities(): CampCapacity[] {
+  return [
+    {
+      id: 1,
+      campName: '云栖山谷营地',
+      tentCapacity: 12,
+      note: '台地营位（CS-0001/CS-0002）合计上限，含家庭帐篷与徒步帐。',
+      updatedAt: SEED_TS
+    },
+    {
+      id: 2,
+      campName: '北岭高地营地',
+      tentCapacity: 10,
+      note: '坝顶与崖背营位（CS-0003/CS-0004）合计上限，崖背区域限流。',
+      updatedAt: SEED_TS
+    },
+    {
+      id: 3,
+      campName: '杉木坪营地',
+      tentCapacity: 16,
+      note: '杉木林台地与河滩沙地营位（CS-0005/CS-0006）合计上限，河滩汛期收紧。',
+      updatedAt: SEED_TS
+    }
+  ]
+}
+
 /** 首次运行写入样例数据，保证每个页面首屏都有可评估的内容。 */
 export async function seedIfEmpty(): Promise<void> {
   const count = await db.sites.count()
   if (count > 0) return
-  await db.transaction('rw', db.sites, db.factors, db.profiles, db.vetos, async () => {
+  await db.transaction('rw', db.sites, db.factors, db.profiles, db.vetos, db.campCapacities, async () => {
     await db.profiles.bulkPut(seedProfiles())
     await db.sites.bulkPut(seedSites())
     await db.factors.bulkPut(seedFactors())
     await db.vetos.bulkPut(seedVetos())
+    await db.campCapacities.bulkPut(seedCampCapacities())
   })
 }

@@ -54,6 +54,7 @@ onMounted(async () => {
         <el-menu-item index="/scoring">权重与评分</el-menu-item>
         <el-menu-item index="/map">营位地图</el-menu-item>
         <el-menu-item index="/veto">风险否决</el-menu-item>
+        <el-menu-item index="/merge">勘察包合并</el-menu-item>
       </el-menu>
       <div class="app-aside">
         <el-tag type="info" effect="plain" size="small">{{ mapModeText }}</el-tag>
