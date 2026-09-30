@@ -12,16 +12,18 @@ import type { FactorAssessment } from '@/types/factor'
 import type { ScoreProfile } from '@/types/score'
 import { DEFAULT_WEIGHTS } from '@/types/score'
 import type { RiskVeto } from '@/types/veto'
+import type { CampCapacity } from '@/types/campCapacity'
 
 export const DB_NAME = 'gbcampsite-db'
 /** 当前数据结构版本号 */
-export const DB_VERSION = 3
+export const DB_VERSION = 4
 
 export class GbCampsiteDatabase extends Dexie {
   sites!: Table<Campsite, number>
   factors!: Table<FactorAssessment, number>
   profiles!: Table<ScoreProfile, number>
   vetos!: Table<RiskVeto, number>
+  capacities!: Table<CampCapacity, string>
 
   constructor() {
     super(DB_NAME)
@@ -73,6 +75,35 @@ export class GbCampsiteDatabase extends Dexie {
             if (typeof s.flatness !== 'number') s.flatness = 70
             if (typeof s.tentCapacity !== 'number') s.tentCapacity = 1
           })
+      })
+
+    // v4：新增营地容量表（营地 -> 帐篷总数上限），合并勘察包前做容量硬校验。
+    // 存量库没有人工登记的容量口径，迁移时按「该营地现有营位帐篷数之和」给出保守上限。
+    this.version(DB_VERSION)
+      .stores({
+        sites: '++id, code, name, campName, surface, access, defaultProfileId, updatedAt',
+        factors: '++id, siteId, assessedAt, assessor',
+        profiles: '++id, name, season, active, updatedAt',
+        vetos: '++id, siteId, type, judgedAt',
+        capacities: '&campName, updatedAt'
+      })
+      .upgrade(async (tx) => {
+        const sites = (await tx.table('sites').toArray()) as Campsite[]
+        const now = new Date().toISOString()
+        const sums = new Map<string, number>()
+        for (const s of sites) {
+          const n = Number(s.tentCapacity)
+          if (!Number.isFinite(n) || n < 0 || !s.campName) continue
+          sums.set(s.campName, (sums.get(s.campName) ?? 0) + n)
+        }
+        const rows: CampCapacity[] = Array.from(sums.entries()).map(([campName, total]) => ({
+          campName,
+          tentLimit: total,
+          note: '按升级时现有营位帐篷数汇总，请按营地实际接待能力核对。',
+          createdAt: now,
+          updatedAt: now
+        }))
+        if (rows.length) await tx.table('capacities').bulkPut(rows)
       })
   }
 }
@@ -369,14 +400,32 @@ function seedVetos(): RiskVeto[] {
   ]
 }
 
+/** 营地容量：合并勘察包时，同营地营位帐篷数之和不得超过该上限。 */
+function seedCapacities(): CampCapacity[] {
+  return [
+    { campName: '云栖山谷营地', tentLimit: 20, note: '两片台地合计接待上限。', createdAt: SEED_TS, updatedAt: SEED_TS },
+    { campName: '北岭高地营地', tentLimit: 12, note: '坝顶 + 背风凹槽合计接待上限。', createdAt: SEED_TS, updatedAt: SEED_TS },
+    { campName: '杉木坪营地', tentLimit: 20, note: '林间台地与河滩合计接待上限。', createdAt: SEED_TS, updatedAt: SEED_TS }
+  ]
+}
+
 /** 首次运行写入样例数据，保证每个页面首屏都有可评估的内容。 */
 export async function seedIfEmpty(): Promise<void> {
   const count = await db.sites.count()
   if (count > 0) return
-  await db.transaction('rw', db.sites, db.factors, db.profiles, db.vetos, async () => {
-    await db.profiles.bulkPut(seedProfiles())
-    await db.sites.bulkPut(seedSites())
-    await db.factors.bulkPut(seedFactors())
-    await db.vetos.bulkPut(seedVetos())
-  })
+  await db.transaction(
+    'rw',
+    db.sites,
+    db.factors,
+    db.profiles,
+    db.vetos,
+    db.capacities,
+    async () => {
+      await db.profiles.bulkPut(seedProfiles())
+      await db.sites.bulkPut(seedSites())
+      await db.factors.bulkPut(seedFactors())
+      await db.vetos.bulkPut(seedVetos())
+      await db.capacities.bulkPut(seedCapacities())
+    }
+  )
 }

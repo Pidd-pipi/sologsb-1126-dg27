@@ -8,12 +8,14 @@ import { useRoute } from 'vue-router'
 import { useSiteStore } from '@/stores/siteStore'
 import { useProfileStore } from '@/stores/profileStore'
 import { useUiStore } from '@/stores/uiStore'
+import { useCapacityStore } from '@/stores/capacityStore'
 import { resolveAmapKey } from '@/hooks/useAmapLoader'
 
 const route = useRoute()
 const siteStore = useSiteStore()
 const profileStore = useProfileStore()
 const uiStore = useUiStore()
+const capacityStore = useCapacityStore()
 
 const activeMenu = computed(() => {
   const path = route.path
@@ -22,6 +24,7 @@ const activeMenu = computed(() => {
   if (path.startsWith('/scoring')) return '/scoring'
   if (path.startsWith('/map')) return '/map'
   if (path.startsWith('/veto')) return '/veto'
+  if (path.startsWith('/merge')) return '/merge'
   return ''
 })
 
@@ -33,7 +36,8 @@ onMounted(async () => {
   await Promise.all([
     siteStore.load(),
     profileStore.load(),
-    uiStore.loadVetos()
+    uiStore.loadVetos(),
+    capacityStore.load()
   ])
 })
 </script>
@@ -54,6 +58,7 @@ onMounted(async () => {
         <el-menu-item index="/scoring">权重与评分</el-menu-item>
         <el-menu-item index="/map">营位地图</el-menu-item>
         <el-menu-item index="/veto">风险否决</el-menu-item>
+        <el-menu-item index="/merge">勘察包合并</el-menu-item>
       </el-menu>
       <div class="app-aside">
         <el-tag type="info" effect="plain" size="small">{{ mapModeText }}</el-tag>

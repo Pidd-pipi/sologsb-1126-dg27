@@ -39,6 +39,12 @@ export const routes: RouteRecordRaw[] = [
     meta: { title: '风险否决登记' }
   },
   {
+    path: '/merge',
+    name: 'merge',
+    component: () => import('@/pages/Merge.vue'),
+    meta: { title: '勘察包合并' }
+  },
+  {
     path: '/:pathMatch(.*)*',
     redirect: '/'
   }
